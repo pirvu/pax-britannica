@@ -12,6 +12,10 @@ require 'memarray'
 
 local will = require "dokidoki.private.will"
 
+-- GL 1.2; gl.c's constant table predates it. Plain GL_CLAMP, which this used
+-- to pass, does not exist in GLES2/WebGL at all.
+local GL_CLAMP_TO_EDGE = 0x812F
+
 ---- Fonts and Text -----------------------------------------------------------
 
 function font_map_line_height (font_map)
@@ -269,8 +273,8 @@ function texture_from_pointer(pointer, width, height, channels)
   glTexParameterf(
   --  GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR)
     GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
-  glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP)
-  glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP)
+  glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+  glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
   gluBuild2DMipmaps(GL_TEXTURE_2D, format, width, height, format,
                     GL_UNSIGNED_BYTE, pointer)
   glBindTexture(GL_TEXTURE_2D, 0)
