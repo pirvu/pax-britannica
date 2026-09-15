@@ -167,6 +167,11 @@ int main(int argc, char ** argv)
     for(i = 0; i < argc; i++)
         if(strcmp(argv[i], "--stderr") == 0)
             use_logfile = 0;
+#if defined(__EMSCRIPTEN__)
+    /* A log file in the browser's in-memory filesystem is unreachable; stderr
+     * goes to the developer console, where it can actually be read. */
+    use_logfile = 0;
+#endif
     log_init(use_logfile);
 
     switch_to_game_directory();
