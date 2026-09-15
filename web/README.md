@@ -23,6 +23,31 @@ the game needs 5.1 specifically, since dokidoki's component system is built on
 `dist/` must be served over HTTP, not opened as a `file://` URL — the game data
 is fetched as `index.data`.
 
+## Docker
+
+Published on every push to `wasm-port`:
+
+    docker run --rm -p 8080:80 ghcr.io/pirvu/pax-britannica:latest
+
+then open http://localhost:8080. Or build it yourself — note the context is the
+repository root, not `web/`, because the game's Lua, sprites and audio live
+there alongside the two engine submodules:
+
+    git -c protocol.file.allow=always submodule update --init
+    docker build -f web/Dockerfile -t pax-britannica .
+    docker run --rm -p 8080:80 pax-britannica
+
+Two stages: `emscripten/emsdk:6.0.9` runs `make -C web`, then the resulting
+`dist/` is copied into `nginx:1.27-alpine`. The emsdk tag is pinned to the
+version the port was developed against — if you upgrade your local emsdk, this
+is the other place to change.
+
+`.github/workflows/docker.yml` does the same in CI and pushes to GHCR. It checks
+out with `fetch-depth: 0` and initialises the submodules by hand rather than
+using actions/checkout's `submodules:` option, for the reason in
+`compiling.txt`: `.gitmodules` points at `.`, and the action gives no way to set
+the config flag that a local-path submodule clone now needs.
+
 ## How it fits together
 
 | | |
