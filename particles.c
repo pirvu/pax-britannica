@@ -40,13 +40,23 @@ static inline void draw_particle(emitter_t *emitter, particle_t *particle)
     {
         float dx = emitter->width/2 * particle->scale;
         float dy = emitter->height/2 * particle->scale;
-        glColor4f(1, 1, 1, (float)particle->life / emitter->life);
+        float alpha = (float)particle->life / emitter->life;
+
+        /* The colour is repeated for every vertex rather than set once for the
+         * quad: emscripten's immediate-mode emulation packs one interleaved
+         * vertex buffer and takes the attribute layout from what each vertex
+         * supplies, so a colour given once and then omitted misaligns the
+         * vertices that follow. Desktop GL is indifferent to the repetition. */
+        glColor4f(1, 1, 1, alpha);
         glTexCoord2d(0, 1);
         glVertex2f(particle->x - dx, particle->y - dy);
+        glColor4f(1, 1, 1, alpha);
         glTexCoord2d(1, 1);
         glVertex2f(particle->x + dx, particle->y - dy);
+        glColor4f(1, 1, 1, alpha);
         glTexCoord2d(1, 0);
         glVertex2f(particle->x + dx, particle->y + dy);
+        glColor4f(1, 1, 1, alpha);
         glTexCoord2d(0, 0);
         glVertex2f(particle->x - dx, particle->y + dy);
     }

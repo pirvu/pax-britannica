@@ -1,0 +1,140 @@
+# Pax Britannica in the browser
+
+A WebAssembly build of the game, via emscripten. The desktop build is untouched:
+everything here lives in `web/`, and the handful of changes outside it are
+guarded so `make linux` still works exactly as before.
+
+## Building
+
+The engine lives in two submodules, which are branches of this same repository.
+Getting them needs a config flag, for the reason explained in `compiling.txt`:
+
+    git -c protocol.file.allow=always submodule update --init
+
+Needs [emsdk](https://emscripten.org/docs/getting_started/downloads.html) and
+`curl`. Lua 5.1.5 is downloaded from lua.org on the first build (checksummed;
+the game needs 5.1 specifically, since dokidoki's component system is built on
+`setfenv`/`getfenv`).
+
+    source /path/to/emsdk/emsdk_env.sh
+    make -C web          # builds web/dist/
+    make -C web serve    # and serves it on http://localhost:8173
+
+`dist/` must be served over HTTP, not opened as a `file://` URL — the game data
+is fetched as `index.data`.
+
+## Docker
+
+Published on every push to `wasm-port`:
+
+    docker run --rm -p 8080:80 ghcr.io/pirvu/pax-britannica:latest
+
+then open http://localhost:8080. Or build it yourself — note the context is the
+repository root, not `web/`, because the game's Lua, sprites and audio live
+there alongside the two engine submodules:
+
+    git -c protocol.file.allow=always submodule update --init
+    docker build -f web/Dockerfile -t pax-britannica .
+    docker run --rm -p 8080:80 pax-britannica
+
+Two stages: `emscripten/emsdk:6.0.9` runs `make -C web`, then the resulting
+`dist/` is copied into `nginx:1.27-alpine-slim`, so none of the 1.8GB toolchain
+reaches the published image — it is 20MB, of which 8MB is the game itself. The emsdk tag is pinned to the
+version the port was developed against — if you upgrade your local emsdk, this
+is the other place to change.
+
+`.github/workflows/docker.yml` does the same in CI and pushes to GHCR. It checks
+out with `fetch-depth: 0` and initialises the submodules by hand rather than
+using actions/checkout's `submodules:` option, for the reason in
+`compiling.txt`: `.gitmodules` points at `.`, and the action gives no way to set
+the config flag that a local-path submodule clone now needs.
+
+## Deployment
+
+Live at **https://pax.pirvu.ro**, on `v1.pirvu.ro`, as the compose project in
+`/opt/compose/pax` (which has its own README). It publishes no host port: the
+edge proxy `lb2` (Caddy v2, `/opt/compose/caddy2`) joins `pax_default` and
+reaches it as `pax:80`, the same wiring as `bz.pirvu.ro`. TLS is Caddy's own
+Let's Encrypt, issued on first request; `*.pirvu.ro` is a wildcard CNAME so the
+name needed no DNS work.
+
+To ship a new build: push to `wasm-port`, wait for the workflow, then on v1
+
+    cd /opt/compose/pax && docker compose pull && docker compose up -d
+
+Rolling back means pulling a `sha-<short>` tag instead of `latest`.
+
+Editing the Caddyfile has a trap worth knowing: it is bind-mounted as a single
+read-only file, so any edit that replaces the inode leaves the running container
+reading the old contents, and `caddy reload` does not help. Validate, then
+recreate:
+
+    docker run --rm --network container:lb2 \
+      -v /opt/compose/caddy2/Caddyfile:/etc/caddy/Caddyfile:ro \
+      caddy:2.11-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+    cd /opt/compose/caddy2 && docker compose up -d --force-recreate --no-deps lb2
+
+That recreate briefly interrupts every other `*.pirvu.ro` site, so it is worth
+checking a few of them before and after.
+
+## How it fits together
+
+| | |
+|---|---|
+| `Makefile` | the whole build; deliberately separate from `dokidoki-support/Makefile` |
+| `src/shell.html` | the page: scaled canvas, tap-to-play overlay, touch pads |
+| `src/web.c` | Lua module `web`: frame pacing, context check, touch pads |
+| `src/glu_web.c` | stands in for GLU, which emscripten does not have |
+| `src/compat.c` | the four GL/GLFW entry points emscripten is missing |
+| `src/web_loaders.h` | registers the `particles` and `web` Lua modules |
+
+### The parts that needed real work
+
+**The main loop.** `kernel.lua` ran a `while true` that never returned and
+ended its frame wait in a spin loop — which in a browser is a hung tab. It now
+waits for `requestAnimationFrame` instead, through `web.next_frame()`. Returning
+to the event loop from inside the Lua interpreter is what `-sASYNCIFY` is for.
+
+**Immediate-mode OpenGL.** `-sLEGACY_GL_EMULATION` covers `glBegin`/`glEnd` and
+the matrix stack. One catch: the emulation packs a single interleaved vertex
+buffer and infers the layout from what each vertex supplies, so `glColor` set
+once per primitive — persistent state in desktop GL — misaligns every vertex
+after the first. The draw code repeats the colour per vertex, which desktop GL
+does not mind.
+
+**Audio.** `mixer.c` gained an SDL2 backend feeding the existing `mix_into()`
+from an audio callback, in place of the ALSA thread. The device is opened with
+`allowed_changes = 0` so SDL resamples to the 44100Hz stereo the mixer produces,
+rather than handing back whatever the hardware runs at.
+
+**Touch input.** The game is one button per player, so a phone needs nothing
+more than four booleans. `shell.html` keeps them in `Module.paxButtons`, driven
+by pointer events on four on-screen pads, and `web.button_held(player)` hands
+them to `components/the_one_button.lua`, which ORs them into the keyboard and
+joystick state. Pads take a pointer capture on press so a finger that slides off
+still releases, and everything is let go on `blur` and `visibilitychange` — a
+stuck button in a game whose only verb is "hold" is unplayable.
+
+Layout follows the device rather than the other way round: upright, the canvas
+sits above a row of four pads; turned sideways, the pads become columns flanking
+it, which is where thumbs already are. The pads' colours are the players' own,
+sampled from `sprites/factory_p1..p4.png`, so a player can match a pad to their
+selector on the title screen. Nothing shows on a desktop pointer.
+
+**Undefined symbols are warnings.** `gl.c` and `luaglfw.c` bind hundreds of
+desktop entry points the game never calls. Only the ones it does call have to
+exist; anything else aborts loudly if ever reached.
+
+## Known limitations
+
+- No gamepad. `glfwGetJoystickButtons` is stubbed to report nothing, so the
+  keyboard and the touch pads are the only input. Wiring it to the Gamepad API
+  is the obvious next step; `src/compat.c` is where it goes.
+- Four players round one phone is theoretical rather than comfortable. The pads
+  are multi-touch and sized to fill whatever space is going, but a tablet is the
+  smallest thing that seats a full game.
+- The wasm is ~1.2MB, most of it Asyncify instrumentation — Lua is full of
+  indirect calls, so the transform is conservative. `ASYNCIFY_ONLY` would trim
+  it considerably.
+- Emscripten's SDL still uses a `ScriptProcessorNode`, which runs on the main
+  thread alongside the game loop. Hence the 1024-frame buffer.

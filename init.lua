@@ -12,7 +12,11 @@ end
 
 kernel.set_ratio(4/3)
 
-if args['--windowed'] then
+-- The browser build always runs in the canvas: real fullscreen needs a user
+-- gesture, so it is offered from the page instead.
+local on_web = pcall(require, 'web')
+
+if on_web or args['--windowed'] then
   kernel.set_video_mode(1024, 768)
 else
   kernel.set_fullscreen(true)

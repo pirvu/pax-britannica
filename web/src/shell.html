@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b1417">
+<title>Pax Britannica</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html { height: 100%; }
+  body { height: 100vh; height: 100dvh; }
+  body {
+    margin: 0;
+    background: #0b1417;
+    color: #8fa3a8;
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    padding: max(.5rem, env(safe-area-inset-top))
+             max(.5rem, env(safe-area-inset-right))
+             max(.5rem, env(safe-area-inset-bottom))
+             max(.5rem, env(safe-area-inset-left));
+  }
+
+  /* The three regions (stage, the two pad columns, the hint) are placed by
+     grid so the same markup can be a column on a phone held upright and a
+     row with pads flanking the canvas when it is turned sideways. */
+  #app {
+    height: 100%;
+    display: grid;
+    gap: .5rem;
+    grid-template-areas: "stage" "hint";
+    grid-template-rows: 1fr auto;
+  }
+  #stage {
+    grid-area: stage;
+    display: flex; align-items: center; justify-content: center;
+    min-width: 0; min-height: 0;
+  }
+  #pads-a { grid-area: pa; }
+  #pads-b { grid-area: pb; }
+  .pads { display: none; }
+
+  /* Sized in px by fit() below: aspect-ratio plus max-height does not shrink a
+     definite width, and every workaround is worse than four lines of JS. */
+  #frame { position: relative; background: #000; touch-action: none; }
+  #canvas {
+    display: block; width: 100%; height: 100%;
+    outline: none; touch-action: none;
+  }
+
+  #overlay {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(8, 16, 19, 0.92);
+    cursor: pointer; text-align: center; padding: 1rem;
+    -webkit-user-select: none; user-select: none;
+  }
+  #overlay[hidden] { display: none; }
+  #overlay strong { display: block; color: #d8e4e6; font-size: 1.1rem; margin-bottom: .4rem; }
+
+  #hint {
+    grid-area: hint;
+    margin: 0; text-align: center;
+    display: flex; align-items: center; justify-content: center; gap: .75rem;
+  }
+  kbd {
+    background: #1b2a2e; border: 1px solid #2f4449; border-radius: 3px;
+    padding: 1px 5px; font: inherit; font-size: .9em; color: #d8e4e6;
+  }
+  #fullscreen {
+    flex: none;
+    background: #1b2a2e; border: 1px solid #2f4449; border-radius: 6px;
+    color: #d8e4e6; font: inherit; font-size: 1rem; line-height: 1;
+    padding: .45rem .6rem; cursor: pointer;
+  }
+  .touch-only { display: none; }
+
+  /*** Touch layout ********************************************************/
+
+  body.touch .key-only { display: none; }
+  body.touch .touch-only { display: inline; }
+  body.touch .pads { display: flex; gap: .5rem; }
+  body.touch #hint { font-size: 12px; }
+
+  @media (orientation: portrait) {
+    body.touch #app {
+      grid-template-areas: "stage stage" "pa pb" "hint hint";
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: auto minmax(96px, 34dvh) auto;
+      align-content: end;
+    }
+    body.touch .pads { flex-direction: row; }
+  }
+  @media (orientation: landscape) {
+    body.touch #app {
+      grid-template-areas: "pa stage pb" "pa hint pb";
+      grid-template-columns: minmax(68px, 15vw) 1fr minmax(68px, 15vw);
+      grid-template-rows: 1fr auto;
+    }
+    body.touch .pads { flex-direction: column; }
+  }
+
+  .pad {
+    flex: 1 1 0; min-width: 0; min-height: 0;
+    display: flex; align-items: center; justify-content: center;
+    border: 2px solid var(--c);
+    border-radius: 14px;
+    background: var(--bg);
+    color: var(--c);
+    font: 600 clamp(15px, 4.5vmin, 30px)/1 system-ui, -apple-system, sans-serif;
+    touch-action: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+    cursor: pointer;
+  }
+  .pad[data-down] { background: var(--bg-down); color: #06222b; }
+  /* The player colours, taken from sprites/factory_p1..p4.png. */
+  .pad.p1 { --c: #b1e2f4; --bg: rgba(177, 226, 244, .12); --bg-down: rgba(177, 226, 244, .75); }
+  .pad.p2 { --c: #eb9d9e; --bg: rgba(235, 157, 158, .12); --bg-down: rgba(235, 157, 158, .75); }
+  .pad.p3 { --c: #a2e99e; --bg: rgba(162, 233, 158, .12); --bg-down: rgba(162, 233, 158, .75); }
+  .pad.p4 { --c: #fbf599; --bg: rgba(251, 245, 153, .12); --bg-down: rgba(251, 245, 153, .75); }
+</style>
+</head>
+<body>
+  <div id="app">
+    <div class="pads" id="pads-a">
+      <button class="pad p1" data-player="0" aria-label="Player 1">1</button>
+      <button class="pad p2" data-player="1" aria-label="Player 2">2</button>
+    </div>
+
+    <div id="stage">
+      <div id="frame">
+        <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
+        <div id="overlay"><div><strong id="overlay-title">Loading&hellip;</strong><span id="overlay-note">fetching game data</span></div></div>
+      </div>
+    </div>
+
+    <div class="pads" id="pads-b">
+      <button class="pad p3" data-player="2" aria-label="Player 3">3</button>
+      <button class="pad p4" data-player="3" aria-label="Player 4">4</button>
+    </div>
+
+    <p id="hint">
+      <span class="key-only">
+        Hold <kbd>A</kbd> to join and to build &mdash; other players use <kbd>F</kbd>, <kbd>H</kbd>, <kbd>L</kbd>.
+        Release to launch the ship the needle points at.
+      </span>
+      <span class="touch-only">Hold a pad to join and to build, release to launch.</span>
+      <button id="fullscreen" type="button" aria-label="Toggle fullscreen">&#x26F6;</button>
+    </p>
+  </div>
+
+<script>
+  var overlay = document.getElementById('overlay');
+  var overlayTitle = document.getElementById('overlay-title');
+  var overlayNote = document.getElementById('overlay-note');
+  var canvas = document.getElementById('canvas');
+  var stage = document.getElementById('stage');
+  var frame = document.getElementById('frame');
+  var app = document.getElementById('app');
+  var hint = document.getElementById('hint');
+
+  // Read every frame by the 'web' Lua module, which ORs it into the keyboard
+  // state in components/the_one_button.lua.
+  var buttons = [false, false, false, false];
+
+  var Module = {
+    canvas: canvas,
+    paxButtons: buttons,
+    setStatus: function (text) {
+      if (!text) return;
+      var match = /([^(]+)\((\d+(\.\d+)?)\/(\d+)\)/.exec(text);
+      overlayNote.textContent = match ? match[1] + ' ' + Math.round(match[2] / match[4] * 100) + '%' : text;
+    }
+  };
+
+  /*** Layout **************************************************************/
+
+  // The drawing buffer stays 1024x768; this only scales how it is presented.
+  var GAP = 8;        // the grid gap, .5rem
+  var PAD_MIN = 96;   // the pad row's minimum, kept in step with the CSS
+  function fit() {
+    // Portrait sizes the stage row from its content, so asking it how tall it
+    // is would be circular; work out the budget instead.
+    var portrait = document.body.classList.contains('touch') &&
+                   window.matchMedia('(orientation: portrait)').matches;
+    var available = portrait
+      ? app.clientHeight - PAD_MIN - hint.offsetHeight - 2 * GAP
+      : stage.clientHeight;
+    var w = Math.min(stage.clientWidth, Math.max(available, 0) * 4 / 3);
+    frame.style.width = Math.floor(w) + 'px';
+    frame.style.height = Math.floor(w * 3 / 4) + 'px';
+  }
+  var isTouch = navigator.maxTouchPoints > 0 ||
+                window.matchMedia('(pointer: coarse)').matches;
+  if (isTouch) document.body.classList.add('touch');
+
+  if (window.ResizeObserver) new ResizeObserver(fit).observe(app);
+  window.addEventListener('resize', fit);
+  window.addEventListener('orientationchange', fit);
+  window.matchMedia('(orientation: portrait)').addEventListener('change', fit);
+  fit();
+
+  /*** Touch pads **********************************************************/
+
+  function setButton(pad, down) {
+    if (!!buttons[pad.dataset.player] === down) return;
+    buttons[pad.dataset.player] = down;
+    if (down) pad.setAttribute('data-down', ''); else pad.removeAttribute('data-down');
+    if (down && navigator.vibrate) navigator.vibrate(8);
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('.pad'), function (pad) {
+    // Pointer capture keeps the release on this element even when the finger
+    // slides off, which is the difference between "held" and "stuck down".
+    pad.addEventListener('pointerdown', function (e) {
+      e.preventDefault();
+      pad.setPointerCapture(e.pointerId);
+      setButton(pad, true);
+      start();
+    });
+    function up(e) { e.preventDefault(); setButton(pad, false); }
+    pad.addEventListener('pointerup', up);
+    pad.addEventListener('pointercancel', up);
+    pad.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  });
+
+  // A pad held while the tab goes away never sees its pointerup.
+  function releaseAll() {
+    Array.prototype.forEach.call(document.querySelectorAll('.pad'), function (pad) {
+      setButton(pad, false);
+    });
+  }
+  window.addEventListener('blur', releaseAll);
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) releaseAll();
+  });
+
+  /*** Fullscreen **********************************************************/
+
+  document.getElementById('fullscreen').addEventListener('click', function (e) {
+    e.preventDefault();
+    var root = document.documentElement;
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    } else {
+      (root.requestFullscreen || root.webkitRequestFullscreen).call(root);
+    }
+  });
+
+  /*** Start ***************************************************************/
+
+  // Emscripten's GLFW listens for keys on window, so the game is only playable
+  // while this page holds focus -- not the devtools, not another element. The
+  // gesture that dismisses this overlay is also what browsers want before they
+  // will let audio start.
+  function start() {
+    if (overlay.hidden) return;
+    overlay.hidden = true;
+    window.focus();
+    canvas.focus();
+    fit();
+  }
+  overlay.addEventListener('click', start);
+  canvas.addEventListener('click', function () { window.focus(); canvas.focus(); });
+
+  Module.onRuntimeInitialized = function () {
+    overlayTitle.textContent = 'Tap to play';
+    overlayNote.textContent = isTouch ? 'then hold a numbered pad'
+                                      : 'keyboard input needs this page focused';
+  };
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>

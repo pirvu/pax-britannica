@@ -1,0 +1,14 @@
+# Build context for web/Dockerfile. The game data, the engine submodules and
+# web/ are needed; nothing else is.
+.git
+.github
+.gitmodules
+media/
+screenshot_*.png
+Info.plist
+*.o
+pax-britannica
+PaxBritannica.app
+web/build/
+web/dist/
+web/third_party/

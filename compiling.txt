@@ -1,7 +1,12 @@
 Pax Britannica uses git submodules to manage its framework dependencies. If you
 downloaded this source copy from git, you need to type
-    git submodule update --init
+    git -c protocol.file.allow=always submodule update --init
 to initialize the framework before compiling.
+
+The submodules are branches of this same repository, so .gitmodules points them
+at "." — a local path. Since git 2.38 cloning a submodule over the file
+transport is disabled by default (CVE-2022-39253), hence the extra config; a
+plain `git submodule update --init` fails with "transport 'file' not allowed".
 
 To compile, use one of the following based on your platform:
 Linux:   make linux
