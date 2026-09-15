@@ -18,7 +18,10 @@ COPY . .
 # Downloads and checksums Lua 5.1.5, then builds web/dist.
 RUN make -C web
 
-FROM nginx:1.27-alpine
+# alpine-slim rather than alpine: same core nginx, without the njs, geoip and
+# perl modules none of this uses. 12MB instead of 48MB, which matters when the
+# thing being served is only 8MB.
+FROM nginx:1.27-alpine-slim
 
 COPY web/docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /src/web/dist /usr/share/nginx/html

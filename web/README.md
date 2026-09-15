@@ -38,7 +38,8 @@ there alongside the two engine submodules:
     docker run --rm -p 8080:80 pax-britannica
 
 Two stages: `emscripten/emsdk:6.0.9` runs `make -C web`, then the resulting
-`dist/` is copied into `nginx:1.27-alpine`. The emsdk tag is pinned to the
+`dist/` is copied into `nginx:1.27-alpine-slim`, so none of the 1.8GB toolchain
+reaches the published image — it is 20MB, of which 8MB is the game itself. The emsdk tag is pinned to the
 version the port was developed against — if you upgrade your local emsdk, this
 is the other place to change.
 
