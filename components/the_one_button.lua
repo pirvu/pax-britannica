@@ -1,5 +1,10 @@
 require 'glfw'
 
+-- On the web the same button also comes from the on-screen pads in
+-- web/src/shell.html. Absent everywhere else, hence the pcall.
+local has_web, web = pcall(require, 'web')
+if not has_web then web = nil end
+
 local old_states = {}
 local states = {}
 
@@ -39,6 +44,7 @@ game.actors.new_generic('the_one_button', function ()
     for i = 1, 4 do
       states[i] =
         game.keyboard.key_held(player_keys[i]) or
+        (web ~= nil and web.button_held(i)) or
         glfw.GetJoystickButtons(player_joysticks[i], 1)[1] == glfw.PRESS
     end
   end

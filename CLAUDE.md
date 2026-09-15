@@ -79,6 +79,14 @@ success even when no WebGL context was created. Both are fixed — logs go to th
 console, and the context is checked explicitly — but if a change ever makes the
 canvas go black with a clean console, suspect something before the first draw.
 
+**Touch input does not go through the keyboard.** The pads in
+`web/src/shell.html` set `Module.paxButtons`, `web.button_held()` reads it and
+`components/the_one_button.lua` ORs it in. Synthesising key events instead would
+mean forging `event.keyCode`, which is what emscripten's GLFW shim reads and
+which a constructed `KeyboardEvent` cannot set. Layout is sized in pixels by
+`fit()` rather than by CSS `aspect-ratio`, because `max-height` does not shrink
+a width that is already definite.
+
 **`scripts/production.lua` is the one CRLF file in the repo.** Editors and
 scripts that normalise line endings turn a three-line change into 213. Check
 `git diff --stat` before committing.

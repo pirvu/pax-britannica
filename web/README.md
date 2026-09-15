@@ -82,8 +82,8 @@ checking a few of them before and after.
 | | |
 |---|---|
 | `Makefile` | the whole build; deliberately separate from `dokidoki-support/Makefile` |
-| `src/shell.html` | the page: scaled canvas, click-to-play overlay, controls |
-| `src/web.c` | Lua module `web`: frame pacing and a WebGL context check |
+| `src/shell.html` | the page: scaled canvas, tap-to-play overlay, touch pads |
+| `src/web.c` | Lua module `web`: frame pacing, context check, touch pads |
 | `src/glu_web.c` | stands in for GLU, which emscripten does not have |
 | `src/compat.c` | the four GL/GLFW entry points emscripten is missing |
 | `src/web_loaders.h` | registers the `particles` and `web` Lua modules |
@@ -107,6 +107,20 @@ from an audio callback, in place of the ALSA thread. The device is opened with
 `allowed_changes = 0` so SDL resamples to the 44100Hz stereo the mixer produces,
 rather than handing back whatever the hardware runs at.
 
+**Touch input.** The game is one button per player, so a phone needs nothing
+more than four booleans. `shell.html` keeps them in `Module.paxButtons`, driven
+by pointer events on four on-screen pads, and `web.button_held(player)` hands
+them to `components/the_one_button.lua`, which ORs them into the keyboard and
+joystick state. Pads take a pointer capture on press so a finger that slides off
+still releases, and everything is let go on `blur` and `visibilitychange` — a
+stuck button in a game whose only verb is "hold" is unplayable.
+
+Layout follows the device rather than the other way round: upright, the canvas
+sits above a row of four pads; turned sideways, the pads become columns flanking
+it, which is where thumbs already are. The pads' colours are the players' own,
+sampled from `sprites/factory_p1..p4.png`, so a player can match a pad to their
+selector on the title screen. Nothing shows on a desktop pointer.
+
 **Undefined symbols are warnings.** `gl.c` and `luaglfw.c` bind hundreds of
 desktop entry points the game never calls. Only the ones it does call have to
 exist; anything else aborts loudly if ever reached.
@@ -114,8 +128,11 @@ exist; anything else aborts loudly if ever reached.
 ## Known limitations
 
 - No gamepad. `glfwGetJoystickButtons` is stubbed to report nothing, so the
-  keyboard is the only input. Wiring it to the Gamepad API is the obvious next
-  step; `src/compat.c` is where it goes.
+  keyboard and the touch pads are the only input. Wiring it to the Gamepad API
+  is the obvious next step; `src/compat.c` is where it goes.
+- Four players round one phone is theoretical rather than comfortable. The pads
+  are multi-touch and sized to fill whatever space is going, but a tablet is the
+  smallest thing that seats a full game.
 - The wasm is ~1.2MB, most of it Asyncify instrumentation — Lua is full of
   indirect calls, so the transform is conservative. `ASYNCIFY_ONLY` would trim
   it considerably.

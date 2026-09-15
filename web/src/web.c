@@ -26,6 +26,22 @@ EM_JS(int, web_has_gl_context, (), {
   return Module['ctx'] ? 1 : 0;
 });
 
+/* The on-screen pads in shell.html. The game is one button per player, so a
+ * touch device needs nothing more than four booleans; the shell keeps them in
+ * Module.paxButtons and components/the_one_button.lua ORs them into the
+ * keyboard state. Out-of-range or missing means "not held". */
+EM_JS(int, web_button_held, (int player), {
+  var b = Module['paxButtons'];
+  return (b && b[player]) ? 1 : 0;
+});
+
+static int web__button_held(lua_State *L)
+{
+  int player = luaL_checkint(L, 1);
+  lua_pushboolean(L, player >= 1 && player <= 4 && web_button_held(player - 1));
+  return 1;
+}
+
 static int web__has_gl_context(lua_State *L)
 {
   lua_pushboolean(L, web_has_gl_context());
@@ -43,6 +59,7 @@ static const luaL_Reg functions[] =
 {
   {"next_frame", web__next_frame},
   {"has_gl_context", web__has_gl_context},
+  {"button_held", web__button_held},
   {NULL, NULL}
 };
 
