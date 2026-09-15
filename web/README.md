@@ -49,6 +49,34 @@ using actions/checkout's `submodules:` option, for the reason in
 `compiling.txt`: `.gitmodules` points at `.`, and the action gives no way to set
 the config flag that a local-path submodule clone now needs.
 
+## Deployment
+
+Live at **https://pax.pirvu.ro**, on `v1.pirvu.ro`, as the compose project in
+`/opt/compose/pax` (which has its own README). It publishes no host port: the
+edge proxy `lb2` (Caddy v2, `/opt/compose/caddy2`) joins `pax_default` and
+reaches it as `pax:80`, the same wiring as `bz.pirvu.ro`. TLS is Caddy's own
+Let's Encrypt, issued on first request; `*.pirvu.ro` is a wildcard CNAME so the
+name needed no DNS work.
+
+To ship a new build: push to `wasm-port`, wait for the workflow, then on v1
+
+    cd /opt/compose/pax && docker compose pull && docker compose up -d
+
+Rolling back means pulling a `sha-<short>` tag instead of `latest`.
+
+Editing the Caddyfile has a trap worth knowing: it is bind-mounted as a single
+read-only file, so any edit that replaces the inode leaves the running container
+reading the old contents, and `caddy reload` does not help. Validate, then
+recreate:
+
+    docker run --rm --network container:lb2 \
+      -v /opt/compose/caddy2/Caddyfile:/etc/caddy/Caddyfile:ro \
+      caddy:2.11-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+    cd /opt/compose/caddy2 && docker compose up -d --force-recreate --no-deps lb2
+
+That recreate briefly interrupts every other `*.pirvu.ro` site, so it is worth
+checking a few of them before and after.
+
 ## How it fits together
 
 | | |
