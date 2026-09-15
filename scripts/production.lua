@@ -118,8 +118,10 @@ function draw()
     gl.glVertex2d(0, 0)
     for point = 0,SEGMENTS do
       local vert = v2.unit(math.pi/2 - angle - point / SEGMENTS * filled_angle) * RADIUS
+      gl.glColor4d(0, 0, 0, 0.6)
       gl.glVertex2d(vert.x, vert.y)
     end
+    gl.glColor4d(0, 0, 0, 0.6)
     gl.glVertex2d(0, 0)
   gl.glEnd()   
   
@@ -131,6 +133,7 @@ function draw()
       gl.glColor4d(0.5, 1, 1, 1)
       gl.glVertex2d(0, 0)
       for point = 0,SEGMENTS do
+        gl.glColor4d(0.5, 1, 1, 1)
         gl.glVertex2d(math.sin(point / SEGMENTS * math.pi * 0.5 + bottom_highlight_angle) * RADIUS, math.cos(point / SEGMENTS * math.pi * 0.5 + bottom_highlight_angle) * RADIUS)
       end
     gl.glEnd()    

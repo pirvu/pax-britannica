@@ -1,5 +1,10 @@
 local gl = require 'gl'
 local v2 = require 'dokidoki.v2'
+-- Note: every vertex inside a glBegin/glEnd block below repeats its colour.
+-- Desktop GL treats glColor as persistent state, but emscripten's
+-- immediate-mode emulation packs one interleaved vertex buffer and reads the
+-- attribute layout from what each vertex supplies, so a colour given once and
+-- then omitted misaligns every vertex after it.
 
 assert(player, 'missing player argument')
 
@@ -45,8 +50,10 @@ function draw()
     gl.glVertex2d(0, 0)
     for point = 0,SEGMENTS do
       local vert = v2.unit(math.pi/2 - point / SEGMENTS * math.pi * 2) * RADIUS
+      gl.glColor4d(0, 0, 0, 0.6)
       gl.glVertex2d(vert.x, vert.y)
     end
+    gl.glColor4d(0, 0, 0, 0.6)
     gl.glVertex2d(0, 0)
   gl.glEnd()      
   
@@ -57,6 +64,7 @@ function draw()
       gl.glColor4d(0.5, 1, 1, 0.7)
       gl.glVertex2d(0, 0)
       for point = 0,SEGMENTS do
+        gl.glColor4d(0.5, 1, 1, 0.7)
         gl.glVertex2d(math.sin(point / SEGMENTS * math.pi * 0.5 + bottom_highlight_angle) * RADIUS, math.cos(point / SEGMENTS * math.pi * 0.5 + bottom_highlight_angle) * RADIUS)
       end
     gl.glEnd()   

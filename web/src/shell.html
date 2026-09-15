@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pax Britannica</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0;
+    background: #0b1417;
+    color: #8fa3a8;
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+  }
+  #frame {
+    position: relative;
+    width: min(100vw, calc((100vh - 4rem) * 4 / 3));
+    aspect-ratio: 4 / 3;
+    background: #000;
+  }
+  /* The drawing buffer stays 1024x768; this only scales how it is presented. */
+  #canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    outline: none;
+  }
+  #overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(8, 16, 19, 0.92);
+    cursor: pointer;
+    text-align: center;
+    padding: 1rem;
+  }
+  #overlay[hidden] { display: none; }
+  #overlay strong { display: block; color: #d8e4e6; font-size: 1.1rem; margin-bottom: .4rem; }
+  #hint { margin: .75rem 1rem; text-align: center; }
+  kbd {
+    background: #1b2a2e; border: 1px solid #2f4449; border-radius: 3px;
+    padding: 1px 5px; font: inherit; font-size: .9em; color: #d8e4e6;
+  }
+</style>
+</head>
+<body>
+  <div id="frame">
+    <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
+    <div id="overlay"><div><strong id="overlay-title">Loading…</strong><span id="overlay-note">fetching game data</span></div></div>
+  </div>
+  <p id="hint">
+    Hold <kbd>A</kbd> to join and to build &mdash; other players use <kbd>F</kbd>, <kbd>H</kbd>, <kbd>L</kbd>.
+    Release to launch the ship the needle points at.
+  </p>
+
+<script>
+  var overlay = document.getElementById('overlay');
+  var overlayTitle = document.getElementById('overlay-title');
+  var overlayNote = document.getElementById('overlay-note');
+  var canvas = document.getElementById('canvas');
+
+  var Module = {
+    canvas: canvas,
+    setStatus: function (text) {
+      if (!text) return;
+      var match = /([^(]+)\((\d+(\.\d+)?)\/(\d+)\)/.exec(text);
+      overlayNote.textContent = match ? match[1] + ' ' + Math.round(match[2] / match[4] * 100) + '%' : text;
+    }
+  };
+
+  // Emscripten's GLFW listens for keys on window, so the game is only playable
+  // while this page holds focus -- not the devtools, not another element. The
+  // click that dismisses this overlay is also the user gesture browsers want
+  // before they will let audio start.
+  function start() {
+    overlay.hidden = true;
+    window.focus();
+    canvas.focus();
+  }
+  overlay.addEventListener('click', start);
+  canvas.addEventListener('click', function () { window.focus(); canvas.focus(); });
+
+  Module.onRuntimeInitialized = function () {
+    overlayTitle.textContent = 'Click to play';
+    overlayNote.textContent = 'keyboard input needs this page focused';
+  };
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>
