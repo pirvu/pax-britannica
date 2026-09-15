@@ -33,6 +33,10 @@ require "glfw"
 local mixer = require "mixer"
 local log = require "log"
 
+-- Present only in the browser build; see web/src/web.c.
+local has_web, web = pcall(require, "web")
+if not has_web then web = nil end
+
 import(require "gl")
 
 import(require "dokidoki.base")
@@ -156,7 +160,10 @@ function start_main_loop (scene)
       error("glfw initialization failed")
     end
     log.log_message "initializing mixer. . ."
-    assert(mixer.init())
+    local _, audio_warning = mixer.init()
+    if audio_warning then
+      log.log_message("warning: continuing without sound: " .. audio_warning)
+    end
 
     running = true
     
@@ -176,8 +183,24 @@ function start_main_loop (scene)
       ratio = width / height
     end
     log.log_message("setting video mode to " .. width .. "x" .. height .. ". . .")
-    glfw.OpenWindow(width, height, 8, 8, 8, 8, 24, 0,
+    -- The game is 2D and never touches a depth or stencil buffer. In a browser
+    -- the smallest possible request is also the one most likely to be granted,
+    -- and dropping the alpha channel stops the canvas compositing with the
+    -- page behind it.
+    local alpha_bits, depth_bits = 8, 24
+    if web then alpha_bits, depth_bits = 0, 0 end
+
+    glfw.OpenWindow(width, height, 8, 8, 8, alpha_bits, depth_bits, 0,
                     use_fullscreen and glfw.FULLSCREEN or glfw.WINDOW)
+
+    -- glfwOpenWindow reports success unconditionally under emscripten, so ask
+    -- the browser side directly rather than rendering into nothing.
+    if web and not web.has_gl_context() then
+      error("the browser would not give us a WebGL context. Check " ..
+            "chrome://gpu for hardware acceleration, and whether " ..
+            "https://get.webgl.org/ works in this browser.")
+    end
+
     set_video_mode(width, height)
 
     log.log_message "starting main loop"
@@ -331,6 +354,18 @@ function get_current_time ()
 end
 
 function sleep_until (time)
+  if web then
+    -- In a browser there is no thread to block and a spin loop freezes the
+    -- tab, so hand control back to the event loop until the next animation
+    -- frame. That is also the browser's own answer to "when is a frame due",
+    -- which makes the requested time redundant. The catch-up loop in
+    -- main_loop still runs the fixed number of updates the elapsed time
+    -- calls for, so the simulation rate stays independent of the refresh
+    -- rate.
+    web.next_frame()
+    return
+  end
+
   local time_to_sleep = time - get_current_time() - sleep_allowance
   if time_to_sleep > min_sleep_time then
     glfw.Sleep(time_to_sleep)
