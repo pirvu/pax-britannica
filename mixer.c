@@ -182,6 +182,11 @@ static void channel_mix_into(int channel, calc_t * output,
 
 static void mix_into(sample_t * output, size_t frame_count)
 {
+    /* calc_buffer is sized for BUFFER_SIZE frames, and the output buffer is
+     * the caller's, sized for frame_count. Both are overrun if this is asked
+     * for more than it was built for. */
+    assert(frame_count <= BUFFER_SIZE);
+
     memset(calc_buffer, 0, frame_count * 2 * sizeof(calc_t));
 
     int c;
@@ -190,7 +195,7 @@ static void mix_into(sample_t * output, size_t frame_count)
             channel_mix_into(c, calc_buffer, frame_count);
 
     int i;
-    for(i = 0; i != BUFFER_SIZE * 2; i++)
+    for(i = 0; i != (int)(frame_count * 2); i++)
     {
         if(calc_buffer[i] <= SAMPLE_MIN)
             output[i] = SAMPLE_MIN;
@@ -379,7 +384,136 @@ static sound_data_t * load_ogg(const char * filename)
     return data;
 }
 
-#if defined(DOKIDOKI_MACOSX) || defined(DOKIDOKI_MINGW)
+#if defined(__EMSCRIPTEN__)
+//// SDL2 (browser) ///////////////////////////////////////////////////////////
+
+/* The browser has no thread to block on a device, so instead of the write loop
+ * the other backends run, SDL pulls from the mixer on its own audio callback.
+ * mix_into() is the same pull the ALSA thread used, so nothing above changes.
+ *
+ * SDL_MAIN_HANDLED keeps SDL_main.h from renaming main(), which lives in
+ * minlua.c and knows nothing about SDL. */
+
+#define SDL_MAIN_HANDLED
+#include <SDL2/SDL.h>
+#include <emscripten.h>
+
+/* SDL's emscripten audio driver constructs an AudioContext without guarding
+ * it, so where the browser refuses to make one the exception unwinds straight
+ * out through wasm and takes the process with it -- before SDL can report a
+ * failure we could handle. Probe for one first, from JS, where it can be
+ * caught. */
+EM_JS(int, web_audio_available, (), {
+  try {
+    var Context = window.AudioContext || window.webkitAudioContext;
+    if (!Context) return 0;
+    var probe = new Context();
+    if (probe.close) probe.close();
+    return 1;
+  } catch (e) {
+    return 0;
+  }
+});
+
+static SDL_AudioSpec audio_spec;
+
+static void audio_callback(void * userdata, Uint8 * stream, int len)
+{
+    (void)userdata;
+
+    /* SDL picks the callback length, and the mixer can only produce BUFFER_SIZE
+     * frames at a time, so work through it in chunks. Web Audio is float even
+     * where the device was opened as 16-bit, so handle both. */
+    int is_float = (audio_spec.format == AUDIO_F32SYS);
+    size_t frame_bytes = (is_float ? sizeof(float) : sizeof(sample_t)) * 2;
+    size_t remaining = (size_t)len / frame_bytes;
+    Uint8 * out = stream;
+
+    while(remaining > 0)
+    {
+        size_t frames = remaining < BUFFER_SIZE ? remaining : BUFFER_SIZE;
+
+        if(is_float)
+        {
+            sample_t scratch[BUFFER_SIZE * 2];
+            float * float_out = (float *)out;
+            size_t i;
+
+            mix_into(scratch, frames);
+            for(i = 0; i < frames * 2; i++)
+                float_out[i] = (float)scratch[i] / -(float)SAMPLE_MIN;
+        }
+        else
+        {
+            mix_into((sample_t *)out, frames);
+        }
+
+        out += frames * frame_bytes;
+        remaining -= frames;
+    }
+}
+
+static SDL_AudioDeviceID audio_device = 0;
+
+static int init()
+{
+    SDL_AudioSpec want, have;
+
+    if(!web_audio_available())
+    {
+        error_string = "the browser would not provide an AudioContext";
+        return 0;
+    }
+
+    if(SDL_Init(SDL_INIT_AUDIO) < 0)
+    {
+        error_string = SDL_GetError();
+        return 0;
+    }
+
+    SDL_memset(&want, 0, sizeof(want));
+    want.freq = SAMPLE_RATE;
+    want.format = AUDIO_S16SYS;
+    want.channels = 2;
+    /* Not BUFFER_SIZE: emscripten's SDL runs the callback on the main thread
+     * through a ScriptProcessorNode, in competition with the game loop, and
+     * 256 frames is under 6ms of headroom before it drops out. The callback
+     * above chunks whatever length it is handed. */
+    want.samples = 1024;
+    want.callback = audio_callback;
+
+    /* allowed_changes = 0 is the important part. The mixer has no resampler
+     * and mixes stereo 16-bit only, so rather than accept whatever the device
+     * offers -- 48000Hz is at least as common as 44100 -- SDL is made to
+     * convert, and the callback gets the format asked for here. */
+    audio_device = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
+    if(audio_device == 0)
+    {
+        error_string = SDL_GetError();
+        return 0;
+    }
+    audio_spec = have;
+
+    /* Browsers keep the audio context suspended until the page has seen a
+     * user gesture; emscripten resumes it on the first one by itself. */
+    SDL_PauseAudioDevice(audio_device, 0);
+
+    return 1;
+}
+
+static int uninit()
+{
+    if(audio_device != 0)
+    {
+        SDL_PauseAudioDevice(audio_device, 1);
+        SDL_CloseAudioDevice(audio_device);
+        audio_device = 0;
+    }
+    SDL_QuitSubSystem(SDL_INIT_AUDIO);
+    return 1;
+}
+
+#elif defined(DOKIDOKI_MACOSX) || defined(DOKIDOKI_MINGW)
 //// Portaudio ////////////////////////////////////////////////////////////////
 
 #include <portaudio.h>
@@ -554,18 +688,31 @@ do \
 #define LUA_ERROR(L, message) LUA_CHECK(L, 0, message)
 
 static int mixer__initted = 0;
+static int mixer__have_device = 0;
 
 static void check_initted(lua_State *L)
 {
     if(!mixer__initted) luaL_error(L, "please call mixer.init() first");
 }
 
+/* Failing to open a device costs sound, not the game. Everything above this
+ * point is plain memory that only the backend ever pulls from, so loading and
+ * playing still work when there is no device -- they just go unheard. Init
+ * therefore reports success with the reason as a second return value, instead
+ * of a failure the caller is likely to turn into a fatal error. */
 static int mixer__init(lua_State *L)
 {
     if(!mixer__initted)
     {
-        mixer__initted = init();
-        LUA_CHECK(L, mixer__initted, error_string);
+        mixer__have_device = init();
+        mixer__initted = 1;
+
+        if(!mixer__have_device)
+        {
+            lua_pushboolean(L, 1);
+            lua_pushstring(L, error_string ? error_string : "no audio device");
+            return 2;
+        }
     }
     lua_pushboolean(L, 1);
     return 1;
@@ -575,8 +722,11 @@ static int mixer__uninit(lua_State *L)
 {
     if(mixer__initted)
     {
+        int had_device = mixer__have_device;
         mixer__initted = 0;
-        LUA_CHECK(L, uninit(), error_string);
+        mixer__have_device = 0;
+        if(had_device)
+            LUA_CHECK(L, uninit(), error_string);
     }
     lua_pushboolean(L, 1);
     return 1;
